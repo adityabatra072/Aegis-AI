@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database - Central data store for all logs
+  postgres:
+    image: postgres:15-alpine
+    container_name: aegis-postgres
+    environment:
+      POSTGRES_DB: aegis_db
+      POSTGRES_USER: aegis_user
+      POSTGRES_PASSWORD: aegis_secure_pass_2024
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegis_user -d aegis_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aegis-network
+
+  # Log Generator - Simulates real server logs with embedded threats
+  generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.generator
+    container_name: aegis-generator
+    environment:
+      DATABASE_URL: postgresql://aegis_user:aegis_secure_pass_2024@postgres:5432/aegis_db
+      LOG_GENERATION_INTERVAL: 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    restart: unless-stopped
+
+  # AI Analyzer - Classifies logs using LLM intelligence
+  analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.analyzer
+    container_name: aegis-analyzer
+    environment:
+      DATABASE_URL: postgresql://aegis_user:aegis_secure_pass_2024@postgres:5432/aegis_db
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-mock}
+      ANALYSIS_INTERVAL: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    restart: unless-stopped
+
+  # API Gateway - RESTful interface for threat monitoring
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: aegis-api
+    environment:
+      DATABASE_URL: postgresql://aegis_user:aegis_secure_pass_2024@postgres:5432/aegis_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  aegis-network:
+    driver: bridge
