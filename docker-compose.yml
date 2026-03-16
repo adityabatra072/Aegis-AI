@@ -46,8 +46,9 @@ services:
     container_name: aegis-analyzer
     environment:
       DATABASE_URL: postgresql://aegis_user:aegis_secure_pass_2024@postgres:5432/aegis_db
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-mock}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-mock}
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_MODEL: ${AI_MODEL}
       ANALYSIS_INTERVAL: 5
     depends_on:
       postgres:

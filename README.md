@@ -30,49 +30,45 @@
 
 ```mermaid
 graph TB
-    subgraph "Data Generation Layer"
+    subgraph Gen["Data Generation Layer"]
         A[Log Generator Service]
-        A1[Benign Logs<br/>70%]
-        A2[Suspicious Activity<br/>20%]
-        A3[Critical Threats<br/>10%]
+        A1["Benign Logs - 70%"]
+        A2["Suspicious Activity - 20%"]
+        A3["Critical Threats - 10%"]
         A --> A1
         A --> A2
         A --> A3
     end
 
-    subgraph "Data Storage Layer"
-        B[(PostgreSQL Database)]
+    subgraph Store["Data Storage Layer"]
+        B[("PostgreSQL Database")]
         B1[server_logs table]
-        B2[Indexes for Performance]
+        B2[Optimized Indexes]
         B --> B1
         B --> B2
     end
 
-    subgraph "AI Analysis Layer"
+    subgraph AI["AI Analysis Layer"]
         C[AI Analyzer Service]
-        C1{AI Engine}
-        C2[OpenAI GPT-4]
-        C3[Anthropic Claude]
-        C4[Mock Engine<br/>Fallback]
+        C1{"LiteLLM Proxy"}
+        C2["Claude Sonnet 4.5"]
         C --> C1
         C1 --> C2
-        C1 --> C3
-        C1 --> C4
     end
 
-    subgraph "API Gateway Layer"
+    subgraph API["API Gateway Layer"]
         D[FastAPI Service]
-        D1[/status endpoint]
-        D2[/threats endpoint]
-        D3[/logs endpoint]
-        D4[/health endpoint]
+        D1[status endpoint]
+        D2[threats endpoint]
+        D3[logs endpoint]
+        D4[health endpoint]
         D --> D1
         D --> D2
         D --> D3
         D --> D4
     end
 
-    subgraph "Client Layer"
+    subgraph Client["Client Layer"]
         E[Dashboard/CLI]
         F[Security Operations]
         G[Monitoring Systems]

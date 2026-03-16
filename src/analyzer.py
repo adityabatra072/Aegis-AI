@@ -1,7 +1,7 @@
 """
 Aegis-AI Threat Analyzer
 ========================
-Purpose: AI-powered log classification using LLM intelligence
+Purpose: AI-powered log classification using any OpenAI-compatible API
 Author: Aditya Batra
 
 This module:
@@ -9,15 +9,22 @@ This module:
 - Constructs intelligent prompts for LLM analysis
 - Classifies logs as SAFE, SUSPICIOUS, or CRITICAL_THREAT
 - Updates database with AI verdicts
+
+Supports: OpenAI, Anthropic, LiteLLM, and any OpenAI-compatible API endpoint
 """
 
 import os
 import time
 import json
 import logging
-from typing import Dict, Any, List, Optional
+import requests
+from typing import Dict, Any
+from dotenv import load_dotenv
 
 from database import DatabaseManager
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -27,16 +34,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class MockAIEngine:
+class AIEngine:
     """
-    Fallback mock AI engine for testing without API keys.
+    Universal AI engine supporting any OpenAI-compatible API.
 
-    Uses rule-based heuristics to simulate LLM behavior.
+    Compatible with:
+    - OpenAI API (gpt-4, gpt-4o-mini, etc.)
+    - Anthropic API via OpenAI compatibility layer
+    - LiteLLM proxy
+    - Azure OpenAI
+    - LocalAI
+    - Any other OpenAI-compatible endpoint
     """
+
+    def __init__(self):
+        """Initialize AI engine with environment configuration."""
+        self.base_url = os.getenv("AI_BASE_URL")
+        self.api_key = os.getenv("AI_API_KEY")
+        self.model = os.getenv("AI_MODEL")
+
+        # Validate configuration
+        if not self.base_url or not self.api_key or not self.model:
+            raise ValueError(
+                "❌ AI configuration missing! Set AI_BASE_URL, AI_API_KEY, and AI_MODEL in .env file"
+            )
+
+        # Ensure base_url ends with /v1 for OpenAI compatibility
+        if not self.base_url.endswith('/v1'):
+            self.base_url = f"{self.base_url}/v1"
+
+        self.endpoint = f"{self.base_url}/chat/completions"
+
+        logger.info(f"✅ AI engine initialized")
+        logger.info(f"   Base URL: {self.base_url}")
+        logger.info(f"   Model: {self.model}")
 
     def classify_log(self, log_message: str, log_level: str, source_ip: str) -> Dict[str, Any]:
         """
-        Rule-based classification simulating AI analysis.
+        Use AI to classify the log entry.
 
         Args:
             log_message: The raw log message
@@ -44,135 +79,72 @@ class MockAIEngine:
             source_ip: Source IP address
 
         Returns:
-            Classification result with confidence score
-        """
-        message_lower = log_message.lower()
-
-        # Critical threat patterns
-        critical_patterns = [
-            'sql injection', 'union select', 'drop table', 'or 1=1',
-            '<script>', 'onerror=', 'javascript:',
-            'cat /etc/passwd', '/etc/shadow', 'reverse shell',
-            '50+ failed login', 'command injection'
-        ]
-
-        # Suspicious patterns
-        suspicious_patterns = [
-            'failed password', '404', 'admin', 'phpmyadmin',
-            'connection attempt', 'rejected', 'blocked',
-            '../', 'directory traversal'
-        ]
-
-        # Check for critical threats
-        for pattern in critical_patterns:
-            if pattern in message_lower:
-                return {
-                    "classification": "CRITICAL_THREAT",
-                    "confidence": 0.95,
-                    "reasoning": f"Detected {pattern} - indicates active attack",
-                    "attack_type": self._identify_attack_type(message_lower)
-                }
-
-        # Check for suspicious activity
-        for pattern in suspicious_patterns:
-            if pattern in message_lower:
-                return {
-                    "classification": "SUSPICIOUS",
-                    "confidence": 0.75,
-                    "reasoning": f"Detected {pattern} - warrants investigation",
-                    "attack_type": "reconnaissance"
-                }
-
-        # Check log level
-        if log_level in ['ERROR', 'CRITICAL']:
-            return {
-                "classification": "SUSPICIOUS",
-                "confidence": 0.60,
-                "reasoning": f"High severity log level: {log_level}",
-                "attack_type": "unknown"
-            }
-
-        # Default: SAFE
-        return {
-            "classification": "SAFE",
-            "confidence": 0.90,
-            "reasoning": "Normal operational activity",
-            "attack_type": None
-        }
-
-    def _identify_attack_type(self, message: str) -> str:
-        """Identify the specific attack type."""
-        if 'sql' in message or 'union' in message or 'select' in message:
-            return "SQL_INJECTION"
-        elif '<script>' in message or 'xss' in message or 'onerror' in message:
-            return "XSS"
-        elif 'cat' in message or '/etc/' in message or 'passwd' in message:
-            return "COMMAND_INJECTION"
-        elif 'failed login' in message or 'failed password' in message:
-            return "BRUTE_FORCE"
-        elif '../' in message or 'directory traversal' in message:
-            return "PATH_TRAVERSAL"
-        else:
-            return "UNKNOWN_THREAT"
-
-
-class OpenAIEngine:
-    """
-    OpenAI GPT-based threat analysis engine.
-    """
-
-    def __init__(self, api_key: str):
-        """Initialize OpenAI client."""
-        try:
-            from openai import OpenAI
-            self.client = OpenAI(api_key=api_key)
-            self.model = "gpt-4o-mini"  # Cost-effective model for classification
-            logger.info("✅ OpenAI engine initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize OpenAI: {e}")
-            raise
-
-    def classify_log(self, log_message: str, log_level: str, source_ip: str) -> Dict[str, Any]:
-        """
-        Use OpenAI GPT to classify the log entry.
-
-        Args:
-            log_message: The raw log message
-            log_level: Log severity level
-            source_ip: Source IP address
-
-        Returns:
-            Classification result from GPT
+            Classification result from AI
         """
         prompt = self._construct_prompt(log_message, log_level, source_ip)
 
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a cybersecurity expert specializing in log analysis and threat detection. Analyze logs and classify them accurately. Respond only with valid JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.3,  # Low temperature for consistent classification
+            "max_tokens": 300
+        }
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a cybersecurity expert specializing in log analysis and threat detection. Analyze logs and classify them accurately."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,  # Low temperature for consistent classification
-                max_tokens=200
+            response = requests.post(
+                self.endpoint,
+                headers=headers,
+                json=payload,
+                timeout=30
             )
 
-            result_text = response.choices[0].message.content.strip()
-            return self._parse_ai_response(result_text)
+            if response.status_code == 200:
+                data = response.json()
+                result_text = data['choices'][0]['message']['content'].strip()
+                return self._parse_ai_response(result_text)
+            else:
+                logger.error(f"AI API error: {response.status_code} - {response.text}")
+                # Return safe classification on error
+                return {
+                    "classification": "SAFE",
+                    "confidence": 0.5,
+                    "reasoning": f"API error (status {response.status_code}), defaulting to safe",
+                    "attack_type": None
+                }
 
+        except requests.exceptions.Timeout:
+            logger.error("AI API timeout")
+            return {
+                "classification": "SAFE",
+                "confidence": 0.5,
+                "reasoning": "API timeout, defaulting to safe",
+                "attack_type": None
+            }
         except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-            # Fallback to mock engine
-            return MockAIEngine().classify_log(log_message, log_level, source_ip)
+            logger.error(f"AI API exception: {e}")
+            return {
+                "classification": "SAFE",
+                "confidence": 0.5,
+                "reasoning": f"Exception: {str(e)}, defaulting to safe",
+                "attack_type": None
+            }
 
     def _construct_prompt(self, log_message: str, log_level: str, source_ip: str) -> str:
-        """Construct the classification prompt."""
+        """Construct the classification prompt for the AI."""
         return f"""Analyze this server log and classify it as one of: SAFE, SUSPICIOUS, or CRITICAL_THREAT.
 
 Log Details:
@@ -185,28 +157,38 @@ Classification Criteria:
 - SUSPICIOUS: Reconnaissance, probing, failed attempts, unusual patterns
 - CRITICAL_THREAT: Active attacks (SQLi, XSS, command injection, brute force, RCE)
 
-Respond in JSON format:
+Respond ONLY with valid JSON in this exact format:
 {{
     "classification": "SAFE|SUSPICIOUS|CRITICAL_THREAT",
     "confidence": 0.0-1.0,
     "reasoning": "brief explanation",
-    "attack_type": "SQL_INJECTION|XSS|BRUTE_FORCE|etc or null"
+    "attack_type": "SQL_INJECTION|XSS|BRUTE_FORCE|COMMAND_INJECTION|PATH_TRAVERSAL|null"
 }}"""
 
     def _parse_ai_response(self, response_text: str) -> Dict[str, Any]:
         """Parse and validate the AI response."""
         try:
-            # Try to extract JSON from response
+            # Extract JSON from response
             if '{' in response_text:
                 json_start = response_text.index('{')
                 json_end = response_text.rindex('}') + 1
                 json_str = response_text[json_start:json_end]
-                return json.loads(json_str)
-            else:
-                raise ValueError("No JSON found in response")
-        except Exception as e:
-            logger.error(f"Failed to parse AI response: {e}")
-            # Default safe classification on parse error
+
+                # Remove markdown code blocks if present
+                json_str = json_str.replace('```json', '').replace('```', '').strip()
+
+                result = json.loads(json_str)
+
+                # Validate required fields
+                required_fields = ['classification', 'confidence', 'reasoning']
+                if all(field in result for field in required_fields):
+                    # Ensure classification is valid
+                    valid_classifications = ['SAFE', 'SUSPICIOUS', 'CRITICAL_THREAT']
+                    if result['classification'] in valid_classifications:
+                        return result
+
+            # If parsing fails, default to safe
+            logger.warning(f"Failed to parse AI response: {response_text[:100]}")
             return {
                 "classification": "SAFE",
                 "confidence": 0.5,
@@ -214,93 +196,20 @@ Respond in JSON format:
                 "attack_type": None
             }
 
-
-class AnthropicEngine:
-    """
-    Anthropic Claude-based threat analysis engine.
-    """
-
-    def __init__(self, api_key: str):
-        """Initialize Anthropic client."""
-        try:
-            from anthropic import Anthropic
-            self.client = Anthropic(api_key=api_key)
-            self.model = "claude-3-5-haiku-20241022"  # Fast and cost-effective
-            logger.info("✅ Anthropic engine initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Anthropic: {e}")
-            raise
-
-    def classify_log(self, log_message: str, log_level: str, source_ip: str) -> Dict[str, Any]:
-        """
-        Use Claude to classify the log entry.
-
-        Args:
-            log_message: The raw log message
-            log_level: Log severity level
-            source_ip: Source IP address
-
-        Returns:
-            Classification result from Claude
-        """
-        prompt = self._construct_prompt(log_message, log_level, source_ip)
-
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=200,
-                temperature=0.3,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-
-            result_text = response.content[0].text
-            return self._parse_ai_response(result_text)
-
-        except Exception as e:
-            logger.error(f"Anthropic API error: {e}")
-            # Fallback to mock engine
-            return MockAIEngine().classify_log(log_message, log_level, source_ip)
-
-    def _construct_prompt(self, log_message: str, log_level: str, source_ip: str) -> str:
-        """Construct the classification prompt."""
-        return f"""You are a cybersecurity expert. Analyze this server log and classify it.
-
-Log Details:
-- Level: {log_level}
-- Source IP: {source_ip}
-- Message: {log_message}
-
-Classify as: SAFE, SUSPICIOUS, or CRITICAL_THREAT
-
-Respond ONLY with valid JSON:
-{{
-    "classification": "SAFE|SUSPICIOUS|CRITICAL_THREAT",
-    "confidence": 0.0-1.0,
-    "reasoning": "brief explanation",
-    "attack_type": "SQL_INJECTION|XSS|BRUTE_FORCE|etc or null"
-}}"""
-
-    def _parse_ai_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse and validate the AI response."""
-        try:
-            if '{' in response_text:
-                json_start = response_text.index('{')
-                json_end = response_text.rindex('}') + 1
-                json_str = response_text[json_start:json_end]
-                return json.loads(json_str)
-            else:
-                raise ValueError("No JSON found in response")
-        except Exception as e:
-            logger.error(f"Failed to parse AI response: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}")
             return {
                 "classification": "SAFE",
                 "confidence": 0.5,
-                "reasoning": "Parse error",
+                "reasoning": "JSON parse error",
+                "attack_type": None
+            }
+        except Exception as e:
+            logger.error(f"Unexpected parsing error: {e}")
+            return {
+                "classification": "SAFE",
+                "confidence": 0.5,
+                "reasoning": "Unexpected error",
                 "attack_type": None
             }
 
@@ -318,38 +227,7 @@ class ThreatAnalyzer:
             db: Database manager instance
         """
         self.db = db
-        self.ai_engine = self._initialize_ai_engine()
-
-    def _initialize_ai_engine(self):
-        """
-        Initialize the AI engine with priority: OpenAI > Anthropic > Mock.
-
-        Returns:
-            Initialized AI engine instance
-        """
-        openai_key = os.getenv("OPENAI_API_KEY")
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-
-        # Try OpenAI first
-        if openai_key and openai_key != "mock" and openai_key.startswith("sk-"):
-            try:
-                logger.info("🤖 Attempting to initialize OpenAI engine...")
-                return OpenAIEngine(openai_key)
-            except Exception as e:
-                logger.warning(f"OpenAI initialization failed: {e}")
-
-        # Try Anthropic second
-        if anthropic_key and anthropic_key != "mock" and anthropic_key.startswith("sk-ant-"):
-            try:
-                logger.info("🤖 Attempting to initialize Anthropic engine...")
-                return AnthropicEngine(anthropic_key)
-            except Exception as e:
-                logger.warning(f"Anthropic initialization failed: {e}")
-
-        # Fallback to mock
-        logger.warning("⚠️  No valid API keys found - using Mock AI Engine")
-        logger.info("💡 To use real AI: Set OPENAI_API_KEY or ANTHROPIC_API_KEY")
-        return MockAIEngine()
+        self.ai_engine = AIEngine()
 
     def analyze_batch(self, batch_size: int = 10):
         """
@@ -391,8 +269,15 @@ class ThreatAnalyzer:
                     }
                 )
 
-                status_emoji = "🚨" if classification == "CRITICAL_THREAT" else "⚠️" if classification == "SUSPICIOUS" else "✅"
-                logger.info(f"{status_emoji} Log {log['id']}: {classification}")
+                # Log result with appropriate emoji
+                if classification == "CRITICAL_THREAT":
+                    status_emoji = "🚨"
+                elif classification == "SUSPICIOUS":
+                    status_emoji = "⚠️"
+                else:
+                    status_emoji = "✅"
+
+                logger.info(f"{status_emoji} Log {log['id']}: {classification} (confidence: {result.get('confidence', 0):.2f})")
 
             except Exception as e:
                 logger.error(f"❌ Failed to analyze log {log['id']}: {e}")
@@ -405,6 +290,7 @@ class ThreatAnalyzer:
             interval: Seconds to wait between batch analyses
         """
         logger.info(f"🚀 Threat Analyzer started - analyzing every {interval}s")
+        logger.info(f"🤖 Using AI model: {self.ai_engine.model}")
 
         try:
             while True:
@@ -432,9 +318,14 @@ def main():
         return
 
     # Start analysis
-    analyzer = ThreatAnalyzer(db)
-    interval = int(os.getenv("ANALYSIS_INTERVAL", 5))
-    analyzer.run(interval=interval)
+    try:
+        analyzer = ThreatAnalyzer(db)
+        interval = int(os.getenv("ANALYSIS_INTERVAL", 5))
+        analyzer.run(interval=interval)
+    except ValueError as e:
+        logger.error(f"❌ Configuration error: {e}")
+        logger.error("Please set AI_BASE_URL, AI_API_KEY, and AI_MODEL in your .env file")
+        return
 
 
 if __name__ == "__main__":
