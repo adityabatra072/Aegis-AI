@@ -19,6 +19,11 @@ Aegis-AI is an automated security threat detection system that uses Claude Sonne
 
 Built with a microservices architecture, the platform processes logs continuously, classifies threats using AI, and exposes threat intelligence through a RESTful API.
 
+### System in Action
+
+![Aegis-AI Real-Time Threat Detection](screenshots/demo.png)
+*Left: Log generation simulating server traffic. Right: Claude Sonnet 4.5 analyzing logs in real-time, detecting SQL injection, brute force attempts, and classifying normal traffic with 95-99% confidence.*
+
 ---
 
 ## Live Demo
