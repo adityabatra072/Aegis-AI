@@ -67,34 +67,48 @@ Visit `http://localhost:8000/docs` for full Swagger UI with live testing capabil
 
 ```mermaid
 graph TB
-    subgraph Gen["Log Generator"]
-        A[Simulated Traffic]
-        A1["70% Benign"]
-        A2["20% Suspicious"]
-        A3["10% Attacks"]
+    subgraph Gen["Data Generation Layer"]
+        A[Log Generator Service]
+        A1["Benign Logs - 70%"]
+        A2["Suspicious Activity - 20%"]
+        A3["Critical Threats - 10%"]
         A --> A1
         A --> A2
         A --> A3
     end
 
-    subgraph DB["PostgreSQL"]
-        B[("Logs Database")]
-        B1[Optimized Indexes]
+    subgraph Store["Data Storage Layer"]
+        B[("PostgreSQL Database")]
+        B1[server_logs table]
+        B2[Optimized Indexes]
         B --> B1
+        B --> B2
     end
 
-    subgraph AI["AI Analyzer"]
-        C[Claude Sonnet 4.5]
-        C1["Attack Detection"]
+    subgraph AI["AI Analysis Layer"]
+        C[AI Analyzer Service]
+        C1{"LiteLLM Proxy"}
+        C2["Claude Sonnet 4.5"]
         C --> C1
+        C1 --> C2
     end
 
-    subgraph API["REST API"]
-        D[FastAPI Gateway]
-        D1["/threats"]
-        D2["/status"]
+    subgraph API["API Gateway Layer"]
+        D[FastAPI Service]
+        D1[status endpoint]
+        D2[threats endpoint]
+        D3[logs endpoint]
+        D4[health endpoint]
         D --> D1
         D --> D2
+        D --> D3
+        D --> D4
+    end
+
+    subgraph Client["Client Layer"]
+        E[Dashboard/CLI]
+        F[Security Operations]
+        G[Monitoring Systems]
     end
 
     A1 --> B
@@ -103,6 +117,9 @@ graph TB
     B --> C
     C --> B
     B --> D
+    D --> E
+    D --> F
+    D --> G
 
     style A fill:#e1f5ff
     style C fill:#fff4e1
