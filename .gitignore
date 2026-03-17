@@ -53,3 +53,4 @@ Thumbs.db
 # Database
 *.db
 *.sqlite3
+test_litellm.py
