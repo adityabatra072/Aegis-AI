@@ -11,13 +11,14 @@ This module provides:
 """
 
 import os
+import json
 import logging
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 from psycopg2.pool import SimpleConnectionPool
 
 # Configure logging
@@ -116,7 +117,7 @@ class DatabaseManager:
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
                 """,
-                (log_level, source_ip, message, metadata or {})
+                (log_level, source_ip, message, Json(metadata or {}))
             )
             log_id = cursor.fetchone()[0]
             logger.debug(f"Inserted log entry with ID: {log_id}")
@@ -170,8 +171,8 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Merge new metadata with existing
-            update_metadata = metadata or {}
+            # Merge new metadata with existing - convert dict to JSON
+            update_metadata = Json(metadata or {})
 
             cursor.execute(
                 """
@@ -179,7 +180,7 @@ class DatabaseManager:
                 SET ai_classification = %s,
                     is_threat = %s,
                     analyzed_at = NOW(),
-                    metadata = metadata || %s::jsonb
+                    metadata = metadata || %s
                 WHERE id = %s
                 """,
                 (classification, is_threat, update_metadata, log_id)
